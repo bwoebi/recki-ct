@@ -29,8 +29,8 @@ class Factory
 
         $analyzer = new Analyzer();
 
-        $analyzer->addVisitor(new AstProcessor\ReferenceKiller());
         $analyzer->addVisitor(new AstProcessor\AssignOpResolver());
+        $analyzer->addVisitor(new AstProcessor\ReferenceKiller()); // after AssignOpResolver, before LoopResolver
         $analyzer->addVisitor(new AstProcessor\LoopResolver());
         $analyzer->addVisitor(new AstProcessor\ElseIfResolver());
         $analyzer->addVisitor(new AstProcessor\SignatureResolver($signatureResolver));
