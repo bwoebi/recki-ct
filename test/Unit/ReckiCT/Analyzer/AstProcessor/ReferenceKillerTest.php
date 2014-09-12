@@ -23,6 +23,14 @@
 
 namespace ReckiCT\Analyzer\AstProcessor;
 
+use PhpParser\Node\Expr\ArrayDimFetch;
+use PhpParser\Node\Expr\Assign;
+use PhpParser\Node\Expr\FuncCall;
+use PhpParser\Node\Expr\PropertyFetch;
+use PhpParser\Node\Name;
+use PhpParser\Node\Scalar\LNumber;
+use PhpParser\Node;
+use PhpParser\NodeVisitorAbstract;
 use PHPUnit_Framework_TestCase as TestCase;
 use PhpParser\NodeTraverser;
 
@@ -76,13 +84,113 @@ class ReferenceKillerTest extends TestCase
     }
 
     /**
-     * @expectedException LogicException
      * @covers ::enterNode
      */
-    public function testKillAssignByRef()
+    public function testAssignByRef()
     {
-        $this->traverser->traverse([
+        $from = new Function_('foo', ['stmts' => [
             new AssignRef(new Variable('a'), new Variable('b')),
-        ]);
+            new AssignRef(new Variable('a'), new Variable('c')),
+        ]]);
+
+        $to = new Function_('foo', ['stmts' => [
+            new Assign(new Variable('a'), new LNumber(0)),
+            new Assign(new Variable('a'), new LNumber(1)),
+            new Assign(new Variable('a'), new LNumber(2)),
+        ]]);
+
+
+        $this->assertEquals([$to], ReferenceKillerTestAstCleaner::clean($this->traverser->traverse([$from])));
+    }
+
+
+    public function testSimpleFetchByRef() {
+        $from = new Function_('foo', ['stmts' => [
+            new Assign(new Variable('a'), new LNumber(0)),
+            new AssignRef(new Variable('a'), new Variable('b')),
+            new Assign(new Variable('c'), new Variable('a')),
+        ]]);
+
+        $to = new Function_('foo', ['stmts' => [
+            new Assign(new Variable('a'), new LNumber(0)),
+            new Node\Stmt\Switch_(new Variable('a'), [
+                new Node\Stmt\Case_(new LNumber(0), [
+                    new Assign(new Variable('temporary_variable_assignRef_ReckiCT_0'), new LNumber(0)),
+                    new Node\Stmt\Break_,
+                ]),
+                new Node\Stmt\Case_(new LNumber(1), [
+                    new Assign(new Variable('b'), new LNumber(0)),
+                    new Node\Stmt\Break_,
+                ]),
+            ]),
+            new Assign(new Variable('a'), new LNumber(1)),
+            new Node\Stmt\Switch_(new Variable('a'), [
+                new Node\Stmt\Case_(new LNumber(0), [
+                    new Assign(new Variable('temporary_variable_assignRef_ReckiCT_1'), new Variable('temporary_variable_assignRef_ReckiCT_0')),
+                    new Node\Stmt\Break_,
+                ]),
+                new Node\Stmt\Case_(new LNumber(1), [
+                    new Assign(new Variable('temporary_variable_assignRef_ReckiCT_1'), new Variable('b')),
+                    new Node\Stmt\Break_,
+                ]),
+            ]),
+            new Assign(new Variable('c'), new Variable('temporary_variable_assignRef_ReckiCT_1')),
+        ]]);
+
+        $this->assertEquals([$to], ReferenceKillerTestAstCleaner::clean($this->traverser->traverse([$from])));
+    }
+
+    public function testDimFetchByRef() {
+        $from = new Function_('foo', ['stmts' => [
+            new AssignRef(new Variable('a'), new ArrayDimFetch(new PropertyFetch(new Variable('b'), new FuncCall(new Name('c'))), new LNumber(0))),
+            new Assign(new Variable('a'), new LNumber(0)),
+            new Assign(new Variable('d'), new Variable('a')),
+        ]]);
+
+        $to = new Function_('foo', ['stmts' => [
+            new Assign(new Variable('a'), new LNumber(0)),
+            new Assign(new Variable('temporary_variable_assignRef_ReckiCT_1'), new FuncCall(new Name('c'))),
+            new Assign(new Variable('a'), new LNumber(1)),
+            new Node\Stmt\Switch_(new Variable('a'), [
+                new Node\Stmt\Case_(new LNumber(0), [
+                    new Assign(new Variable('temporary_variable_assignRef_ReckiCT_0'), new LNumber(0)),
+                    new Node\Stmt\Break_,
+                ]),
+                new Node\Stmt\Case_(new LNumber(1), [
+                    new Assign(new ArrayDimFetch(new PropertyFetch(new Variable('b'), new Variable('temporary_variable_assignRef_ReckiCT_1')), new LNumber(0)), new LNumber(0)),
+                    new Node\Stmt\Break_,
+                ]),
+            ]),
+            new Node\Stmt\Switch_(new Variable('a'), [
+                new Node\Stmt\Case_(new LNumber(0), [
+                    new Assign(new Variable('temporary_variable_assignRef_ReckiCT_2'), new Variable('temporary_variable_assignRef_ReckiCT_0')),
+                    new Node\Stmt\Break_,
+                ]),
+                new Node\Stmt\Case_(new LNumber(1), [
+                    new Assign(new Variable('temporary_variable_assignRef_ReckiCT_2'), new ArrayDimFetch(new PropertyFetch(new Variable('b'), new Variable('temporary_variable_assignRef_ReckiCT_1')), new LNumber(0))),
+                    new Node\Stmt\Break_,
+                ]),
+            ]),
+            new Assign(new Variable('d'), new Variable('temporary_variable_assignRef_ReckiCT_2')),
+        ]]);
+
+        $this->assertEquals([$to], ReferenceKillerTestAstCleaner::clean($this->traverser->traverse([$from])));
+    }
+}
+
+class ReferenceKillerTestAstCleaner extends NodeVisitorAbstract {
+    public static function clean(array $node) {
+        $traverser = new \PhpParser\NodeTraverser();
+        $traverser->addVisitor(new self());
+        return $traverser->traverse($node);
+    }
+
+    public function enterNode(Node $node) {
+        $prop = (new \ReflectionClass($node))->getProperty('attributes');
+        $prop->setAccessible(true);
+        $attrs = $prop->getValue($node);
+        unset($attrs['referencing_var']);
+        unset($attrs['stmt_node']);
+        $prop->setValue($node, $attrs);
     }
 }

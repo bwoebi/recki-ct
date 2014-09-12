@@ -38,7 +38,6 @@ class ReferenceKiller extends NodeVisitorAbstract
     protected $varCounter = 0;
     protected $prependStmt = array();
     protected $prependFunction = array();
-    protected $assignRefStack = array();
     protected $varasts = 0;
     protected $stmtNode = array();
 
@@ -123,7 +122,9 @@ class ReferenceKiller extends NodeVisitorAbstract
             $traverser->addVisitor($this);
             $traverser->traverse([$node]);
 
-            call_user_func_array("array_unshift", array_merge([&$node->stmts], $this->prependFunction));
+            if (!empty($this->prependFunction)) {
+                call_user_func_array("array_unshift", array_merge([&$node->stmts], $this->prependFunction));
+            }
 
             $this->pass = 2;
             return null;
@@ -135,7 +136,6 @@ class ReferenceKiller extends NodeVisitorAbstract
 
         // AssignOps must already have been resolved
         if ($node instanceof Assign && $node->var instanceof Variable && isset($this->refs[$node->var->name])) {
-            array_push($this->assignRefStack, $node->var);
             $cases = [];
             foreach ($this->map[$node->var->name] as $label) {
                 $cases[] = new Node\Stmt\Case_(new LNumber($label["id"]), [new Assign($this->cloneNode($label["ast"]), $node->expr), new Node\Stmt\Break_]);
@@ -155,7 +155,6 @@ class ReferenceKiller extends NodeVisitorAbstract
         }
 
         if ($node instanceof AssignRef) {
-            //array_push($this->assignRefStack, $node->var);
             $node->var->setAttribute("referencing_var", true);
         }
     }
@@ -188,7 +187,6 @@ class ReferenceKiller extends NodeVisitorAbstract
         }
 
         if ($node instanceof AssignRef) {
-            //array_pop($this->assignRefStack);
             $info = $this->map[$node->var->name][$this->dimensionName($node->expr)];
             return array_merge($node->getAttribute("stmt_node") ? array_splice($this->prependStmt, 0): [], $this->resolveArrayVariables($info["ast"]), [new Assign($node->var, new LNumber($info["id"]))]);
         }

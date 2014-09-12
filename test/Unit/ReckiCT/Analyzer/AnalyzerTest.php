@@ -26,6 +26,7 @@ use PHPUnit_Framework_TestCase as TestCase;
 
 use PhpParser\Node\Stmt\Function_ as AstFunction;
 use PhpParser\NodeVisitorAbstract;
+use PhpParser\NodeTraverser;
 
 use ReckiCT\Type;
 use ReckiCT\Graph\Vertex\Function_ as JitFunction;
@@ -49,7 +50,9 @@ class AnalyzerTest extends TestCase
         $visitor->expects($this->once())
             ->method('enterNode')
             ->with($this->identicalTo($func));
-        $analyzer->addVisitor($visitor);
+        $traverser = new NodeTraverser;
+        $traverser->addVisitor($visitor);
+        $analyzer->addTraverser($traverser);
 
         $this->assertEquals($func, $analyzer->analyzeFunction($func));
     }
