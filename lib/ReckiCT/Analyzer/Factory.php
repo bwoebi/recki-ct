@@ -29,12 +29,17 @@ class Factory
 
         $analyzer = new Analyzer();
 
-        $analyzer->addVisitor(new AstProcessor\AssignOpResolver());
-        $analyzer->addVisitor(new AstProcessor\ReferenceKiller()); // after AssignOpResolver, before LoopResolver
-        $analyzer->addVisitor(new AstProcessor\LoopResolver());
-        $analyzer->addVisitor(new AstProcessor\ElseIfResolver());
-        $analyzer->addVisitor(new AstProcessor\SignatureResolver($signatureResolver));
-        $analyzer->addVisitor(new AstProcessor\RecursionResolver());
+        $traverser = new \PhpParser\NodeTraverser();
+        $traverser->addVisitor(new AstProcessor\AssignOpResolver());
+        $traverser->addVisitor(new AstProcessor\ReferenceKiller()); // after AssignOpResolver, before LoopResolver
+        $analyzer->addTraverser($traverser);
+
+        $traverser = new \PhpParser\NodeTraverser();
+        $traverser->addVisitor(new AstProcessor\LoopResolver());
+        $traverser->addVisitor(new AstProcessor\ElseIfResolver());
+        $traverser->addVisitor(new AstProcessor\SignatureResolver($signatureResolver));
+        $traverser->addVisitor(new AstProcessor\RecursionResolver());
+        $analyzer->addTraverser($traverser);
 
         $analyzer->addProcessor(new GraphProcessor\SSACompiler());
         $resolver = new GraphProcessor\Optimizer();

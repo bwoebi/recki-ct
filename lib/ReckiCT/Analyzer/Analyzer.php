@@ -23,23 +23,18 @@ namespace ReckiCT\Analyzer;
 
 use PhpParser\Node\Stmt\Function_ as AstFunction;
 use PhpParser\Node;
-use PhpParser\NodeVisitor;
+use PhpParser\NodeTraverser;
 
 use ReckiCT\Graph\Vertex\Function_ as JitFunction;
 
 class Analyzer
 {
-    protected $traverser;
+    protected $traversers = [];
     protected $graphProcessors = [];
 
-    public function __construct()
+    public function addTraverser(NodeTraverser $traverser)
     {
-        $this->traverser = new \PhpParser\NodeTraverser();
-    }
-
-    public function addVisitor(NodeVisitor $visitor)
-    {
-        $this->traverser->addVisitor($visitor);
+        $this->traversers[] = $traverser;
     }
 
     public function addProcessor(GraphProcessor $processor)
@@ -49,7 +44,9 @@ class Analyzer
 
     public function analyzeFunction(AstFunction $func)
     {
-        list ($func) = $this->traverser->traverse([$func]);
+        foreach ($this->traversers as $traverser) {
+            list($func) = $traverser->traverse([$func]);
+        }
 
         return $func;
     }
