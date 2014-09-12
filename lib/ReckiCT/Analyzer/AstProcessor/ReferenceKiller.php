@@ -36,6 +36,11 @@ class ReferenceKiller extends NodeVisitorAbstract
     protected $dimAssigns = array();
     protected $pass = 2;
     protected $varCounter = 0;
+    protected $prependStmt = array();
+    protected $prependFunction = array();
+    protected $assignRefStack = array();
+    protected $varasts = 0;
+    protected $stmtNode = array();
 
     /**
      * Called when entering a node.
@@ -62,15 +67,6 @@ class ReferenceKiller extends NodeVisitorAbstract
     }
 
     protected function dimensionName(Node\Expr $node) {
-        /*if ($node instanceof Variable) {
-            return "$".$node->name;
-        }
-        if ($node instanceof Node\Scalar) {
-            return $node->val;
-        }
-        if ($node instanceof Node\Expr\ArrayDimFetch) {
-            return $this->dimensionName($node->var)."\xff[".$this->dimensionName($node->dim)."]";
-        }*/
         return (new \PhpParser\PrettyPrinter\Standard)->prettyPrint([$node]);
     }
 
@@ -92,8 +88,13 @@ class ReferenceKiller extends NodeVisitorAbstract
 
             if (!isset($this->refs[$var])) {
                 $this->refs[$var] = 0;
+                $ast = new Variable("temporary_variable_assignRef_ReckiCT_".$this->varCounter++);
+                $varexpr = $this->dimensionName($ast);
+                $this->map[$var][$varexpr] = ["id" => 0, "ast" => $ast];
+                $this->prependFunction[] = new Assign($varast = new Variable($var), new Node\Scalar\LNumber(0));
+                $this->varasts += 2;
             }
-            $label = $this->refs[$var]++;
+            $label = ++$this->refs[$var];
             if (!isset($this->map[$var][$expr])) {
                 $this->map[$var][$expr] = ["id" => $label, "ast" => $node->expr];
             }
@@ -103,6 +104,18 @@ class ReferenceKiller extends NodeVisitorAbstract
     }
 
     protected function secondPass(Node $node) {
+        if (!$node instanceof Node\Expr\Array_) {
+            foreach ($node as &$subnode) {
+                if (is_array($subnode)) {
+                    foreach ($subnode as &$stmtnode) {
+                        if ($stmtnode instanceof Node) {
+                            $stmtnode->setAttribute("stmt_node", true);
+                        }
+                    }
+                }
+            }
+        }
+
         if ($node instanceof Node\Stmt\Function_) {
             $this->pass = 1;
 
@@ -110,17 +123,40 @@ class ReferenceKiller extends NodeVisitorAbstract
             $traverser->addVisitor($this);
             $traverser->traverse([$node]);
 
+            call_user_func_array("array_unshift", array_merge([&$node->stmts], $this->prependFunction));
+
             $this->pass = 2;
             return null;
         }
 
+        if (($node instanceof Assign || $node instanceof Variable) && $this->varasts-- > 0) {
+            return $node;
+        }
+
         // AssignOps must already have been resolved
         if ($node instanceof Assign && $node->var instanceof Variable && isset($this->refs[$node->var->name])) {
+            array_push($this->assignRefStack, $node->var);
             $cases = [];
             foreach ($this->map[$node->var->name] as $label) {
                 $cases[] = new Node\Stmt\Case_(new LNumber($label["id"]), [new Assign($this->cloneNode($label["ast"]), $node->expr), new Node\Stmt\Break_]);
             }
+            $node->var->setAttribute("referencing_var", true);
             return new Node\Stmt\Switch_($node->var, $cases);
+        }
+
+        if ($node instanceof Variable && isset($this->refs[$node->name]) && !$node->getAttribute("referencing_var")/* && $node != end($this->assignRefStack)*/) {
+            $cases = [];
+            $var = "temporary_variable_assignRef_ReckiCT_".$this->varCounter++;
+            foreach ($this->map[$node->name] as $label) {
+                $cases[] = new Node\Stmt\Case_(new LNumber($label["id"]), [new Assign(new Variable($var), $this->cloneNode($label["ast"])), new Node\Stmt\Break_]);
+            }
+            $this->prependStmt[] = new Node\Stmt\Switch_($node, $cases);
+            return new Variable($var);
+        }
+
+        if ($node instanceof AssignRef) {
+            //array_push($this->assignRefStack, $node->var);
+            $node->var->setAttribute("referencing_var", true);
         }
     }
 
@@ -152,8 +188,14 @@ class ReferenceKiller extends NodeVisitorAbstract
         }
 
         if ($node instanceof AssignRef) {
+            //array_pop($this->assignRefStack);
             $info = $this->map[$node->var->name][$this->dimensionName($node->expr)];
-            return array_merge($this->resolveArrayVariables($info["ast"]), [new Assign($node->var, new LNumber($info["id"]))]);
+            return array_merge($node->getAttribute("stmt_node") ? array_splice($this->prependStmt, 0): [], $this->resolveArrayVariables($info["ast"]), [new Assign($node->var, new LNumber($info["id"]))]);
         }
+
+        if ($node->getAttribute("stmt_node")) {
+            return array_merge(array_splice($this->prependStmt, 0), [$node]);
+        }
+
     }
 }

@@ -61,6 +61,16 @@ class AssignOpResolver extends NodeVisitorAbstract
         'Expr_AssignOp_ShiftRight'  => ShiftRight::class,
     );
 
+    protected function cloneNode(Node $node) {
+        $node = clone $node;
+        foreach ($node as &$subnode) {
+            if ($subnode instanceof Node) {
+                $subnode = $this->cloneNode($subnode);
+            }
+        }
+        return $node;
+    }
+
     /**
      * {@inheritdoc}
      */
@@ -72,7 +82,7 @@ class AssignOpResolver extends NodeVisitorAbstract
             $class = $this->mapping[$node->getType()];
 
             return new Node\Expr\Assign(
-                $node->var,
+                $this->cloneNode($node->var),
                 new $class($node->var, $node->expr)
             );
         }
